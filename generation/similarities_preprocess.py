@@ -69,39 +69,53 @@ def test1():
     return A, B, L, S
 
 
-def create_S(A, B, L):
+def create_S(A:sps.csr_matrix, B:sps.csr_matrix, L:sps.csr_matrix) -> sps.csr_matrix:
+    """
+    CSR: Compressed Sparse Row,
+        where indptr: row indices, indices: column indices, data: values
+    In the paper of Global alignment of multiple protein interaction networks with application to functional orthology detection (2013)
+    S is defined as:
+    
+    S = [Sij] = [1 if (i, j) in E(A) and (i', j') in E(B) and L(i, i') > 0 else 0]
+    """
     # return None
     n = A.shape[0]
     m = B.shape[0]
 
-    rpAB, ciAB = L.indptr, L.indices
-    nedges = len(ciAB)
+    # the column indices for row i are stored in indices[indptr[i]:indptr[i+1]]
+    csr_pointers, nodes_in_B = L.indptr, L.indices
+    # nodes_in_A == nodes_in_B since each element from one group together indicates a correspondance between nodes from A and B
+    nedges = len(nodes_in_B)
 
     Si = []
     Sj = []
-
+    # a vector in the length of m (number of nodes in B), initialized by -1
     wv = np.full(m, -1)
     ri1 = 0
     for i in range(n):
+        # ranges through all nodes in A
         # print(f'{i}/{n}')
-        for ri1 in range(rpAB[i], rpAB[i+1]):
-            wv[ciAB[ri1]] = ri1
+        for ri1 in range(csr_pointers[i], csr_pointers[i+1]):
+            # rages through pointers of all neighbors of node i in L
+            # nodes_in_B[ri1] indicates the corresponding node in B
+            wv[nodes_in_B[ri1]] = ri1
 
         for ip in A[i].nonzero()[1]:
+            # in graph A, for each neighbor of node i (except i itself)
             if i == ip:
                 continue
             # for jp in L[ip].nonzero()[1]:
             # print(ip)
-            for ri2 in range(rpAB[ip], rpAB[ip+1]):
-                jp = ciAB[ri2]
+            for ri2 in range(csr_pointers[ip], csr_pointers[ip+1]):
+                jp = nodes_in_B[ri2]
                 for j in B[jp].nonzero()[1]:
                     if j == jp:
                         continue
                     if wv[j] >= 0:
                         Si.append(ri2)
                         Sj.append(wv[j])
-        for ri1 in range(rpAB[i], rpAB[i+1]):
-            wv[ciAB[ri1]] = -1
+        for ri1 in range(csr_pointers[i], csr_pointers[i+1]):
+            wv[nodes_in_B[ri1]] = -1
 
     return sps.csr_matrix(([1]*len(Si), (Sj, Si)), shape=(nedges, nedges), dtype=int)
     # return sps.csr_matrix(([1]*len(Si), (Si, Sj)), shape=(nedges, nedges), dtype=int)
@@ -109,7 +123,25 @@ def create_S(A, B, L):
 
 
 @ ex.capture
-def create_L(A, B, lalpha=1, mind=None):
+def create_L(A: np.ndarray, B, lalpha=1, min_similarity=None) -> sps.csr_matrix:
+    """
+    In the paper of NetAlign, the matrix L indicates the bipartite graph between the nodes in the graph A and the nodes in B.
+    According to the paper, L is a matrix of size n x m, where n is the number of nodes in A and m is the number of nodes in B.
+    Each row of L is a probability distribution over the nodes in B.
+    The probability distribution is defined as follows:
+    For each node i in A, we sort the nodes in B according to their degrees.
+    We then take such nodes from B, whose degrees are mostly similar to their correspondance in A and denote they is an one-on-many
+     match. The band with of tolerance is defined using floor(lalpha * log2(m)).
+    The rest of the nodes in B are assigned a probability of 0.
+
+    :param A: The adjacency matrix of the first graph.
+    :param B: The adjacency matrix of the second graph.
+    :param lalpha: The parameter lalpha.
+    :param mind: The minimum degree of a node in A.
+    :return: The matrix L.
+
+    This matrix L corresponds to the matrix R in the IsoRank paper. (wrong!)
+    """
     n = A.shape[0]
     m = B.shape[0]
 
@@ -122,42 +154,51 @@ def create_L(A, B, lalpha=1, mind=None):
     # print(b)
 
     # a_p = [(i, m[0,0]) for i, m in enumerate(a)]
-    a_p = list(enumerate(a))
-    a_p.sort(key=lambda x: x[1])
+    node_idx_and_degrees_a = list(enumerate(a))
+    node_idx_and_degrees_a.sort(key=lambda x: x[1])
 
     # b_p = [(i, m[0,0]) for i, m in enumerate(b)]
-    b_p = list(enumerate(b))
-    b_p.sort(key=lambda x: x[1])
+    node_idx_and_degrees_b = list(enumerate(b))
+    node_idx_and_degrees_b.sort(key=lambda x: x[1])
 
-    ab_m = [0] * n
-    s = 0
-    e = floor(lalpha * log2(m))
-    for ap in a_p:
-        while(e < m and
-              abs(b_p[e][1] - ap[1]) <= abs(b_p[s][1] - ap[1])
+    ab_correspondance = [0] * n
+    start = 0
+    end = floor(lalpha * log2(m))
+    for node_idx_a, node_degree_a in node_idx_and_degrees_a:
+        # node_idx_and_degrees_a[:, 1] = 1 2 3 4 5 6 7
+        # ap[1]                                ^
+        #                                s   e  
+        # in this case,  abs(node_idx_and_degrees_b[end][1] - ap[1]) <= abs(node_idx_and_degrees_b[start][1] - ap[1])
+        #
+        # node_idx_and_degrees_a[:, 1] = 1 2 3 4 5 6 7
+        # ap[1]                                ^
+        #                                      s   e
+        # the while loop will stop at this point and the ab_m[ap[0]] will be assigned to b's nodes corresponding to [5, 6, 7]
+        while(end < m and
+              abs(node_idx_and_degrees_b[end][1] - node_degree_a) <= abs(node_idx_and_degrees_b[start][1] - node_degree_a)
               ):
-            e += 1
-            s += 1
-        ab_m[ap[0]] = [bp[0] for bp in b_p[s:e]]
+            end += 1
+            start += 1
+        ab_correspondance[node_idx_a] = [bp[0] for bp in node_idx_and_degrees_b[start:end]]
 
     # print(ab_m)
 
-    li = []
-    lj = []
-    lw = []
-    for i, bj in enumerate(ab_m):
+    graph_1_nodes = []
+    graph_2_nodes = []
+    similarity = []
+    for i, bj in enumerate(ab_correspondance):
         for j in bj:
-            d = 1.0
+            sim_score = 0.001
             # d = 1 - abs(a[i]-b[j]) / max(a[i], b[j])
-            if mind is None:
-                if d > 0:
-                    li.append(i)
-                    lj.append(j)
-                    lw.append(d)
+            if min_similarity is None:
+                if sim_score > 0:
+                    graph_1_nodes.append(i)
+                    graph_2_nodes.append(j)
+                    similarity.append(sim_score)
             else:
-                li.append(i)
-                lj.append(j)
-                lw.append(mind if d <= 0 else d)
+                graph_1_nodes.append(i)
+                graph_2_nodes.append(j)
+                similarity.append(min_similarity if sim_score <= 0 else sim_score)
                 # lw.append(0.0 if d <= 0 else d)
                 # lw.append(d)
 
@@ -165,7 +206,7 @@ def create_L(A, B, lalpha=1, mind=None):
                 # print(len(lj))
                 # print(len(lj))
 
-    return sps.csr_matrix((lw, (li, lj)), shape=(n, m))
+    return sps.csr_matrix((similarity, (graph_1_nodes, graph_2_nodes)), shape=(n, m))
 
     # L = sps.csr_matrix((lw, (li, lj)), shape=(n, m))
     # colsums = np.sum(L.A, axis=1)

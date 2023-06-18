@@ -29,7 +29,37 @@ def to_python(array, diff=1):
 
 
 def bipartite_setup(li, lj, w):
-
+    '''
+    Setup the bipartite matching problem for the given edge list and weights.
+    Returns the setup, the number of nodes in the first partition, and the
+    number of nodes in the second partition.
+    
+    The setup is a tuple of the following:
+    - rp: the row pointer array
+    - ci: the column index array
+    - ai: the value array
+    - tripi: the triplet index array
+    - mperm: the matching permutation array
+    
+    The bipartite matching problem is solved by calling
+    bipartite_matching_primal_dual(rp, ci, ai, tripi, m+1, n+1)
+    
+    The matching indicator is obtained by calling
+    matching_indicator(rp, ci, match1, tripi, m, n)[1:]
+    
+    The matching weight is obtained by calling
+    np.dot(matching_indicator(rp, ci, match1, tripi, m, n)[1:], w)
+    
+    The matching permutation is obtained by calling
+    tripi[mperm-1]
+    
+    The matching permutation is used to obtain the matching indicator and
+    matching weight.
+    
+    Arguments:
+    - li: the list of nodes in the first partition
+    - lj: the list of nodes in the second partition
+    - w: the weight array of the edges'''
     # print(li.tolist())
     # print(lj.tolist())
     # print(w.tolist())

@@ -12,7 +12,7 @@ from .. import bipartitewrapper as bmw
 
 
 # def main(A, B, iters, method, bmatch, default_params=True):
-def main(data, iters, method, bmatch, default_params=True):
+def netalign_main(data, iters, method, bmatch, default_params=True):
 
     # Src = data['Src'].A
     # Tar = data['Tar'].A

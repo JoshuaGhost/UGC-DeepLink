@@ -25,7 +25,7 @@ def maxrowmatch(Q, li, lj, m, n):
     return q, SM
 
 
-def main(data, a=1, b=1, gamma=0.4, stepm=25, rtype=1, maxiter=1000, verbose=True):
+def netalign_main(data, a=1, b=1, gamma=0.4, stepm=25, rtype=1, maxiter=1000, verbose=True):
 
     S = data['S']
     li = data['li']
